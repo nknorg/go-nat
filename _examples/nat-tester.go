@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
-	"github.com/fd/go-nat"
+	gonat "github.com/nknorg/go-nat"
 )
 
 func main() {
-	nat, err := nat.DiscoverGateway()
+	nat, err := gonat.DiscoverGateway()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
@@ -34,25 +33,16 @@ func main() {
 	}
 	log.Printf("external address: %s", eaddr)
 
-	eport, err := nat.AddPortMapping("tcp", 3080, "http", 60)
+	eport, iport, err := nat.AddPortMapping("tcp", 3081, 3080, "http", 60)
 	if err != nil {
 		log.Fatalf("error: %s", err)
+		return
 	}
+	log.Printf("mapped external port %d to internal port %d", eport, iport)
 
 	log.Printf("test-page: http://%s:%d/", eaddr, eport)
 
-	go func() {
-		for {
-			time.Sleep(30 * time.Second)
-
-			_, err = nat.AddPortMapping("tcp", 3080, "http", 60)
-			if err != nil {
-				log.Fatalf("error: %s", err)
-			}
-		}
-	}()
-
-	defer nat.DeletePortMapping("txp", 3080)
+	defer nat.DeletePortMapping("tcp", 3081)
 
 	http.ListenAndServe(":3080", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.Header().Set("Content-Type", "text/plain")

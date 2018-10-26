@@ -9,11 +9,13 @@ import (
 	"time"
 )
 
-var ErrNoExternalAddress = errors.New("no external address")
-var ErrNoInternalAddress = errors.New("no internal address")
-var ErrNoNATFound = errors.New("no NAT found")
+var errNoAvailableExternalPort = errors.New("failed to find available external port")
+var errExternalPortInUse = errors.New("external port is mapped to another internal port")
+var errNoExternalAddress = errors.New("no external address")
+var errNoInternalAddress = errors.New("no internal address")
+var errNoNATFound = errors.New("no NAT found")
 
-// protocol is either "udp" or "tcp"
+// NAT is the nat interface
 type NAT interface {
 	// Type returns the kind of NAT port mapping service that is used
 	Type() string
@@ -28,23 +30,24 @@ type NAT interface {
 	GetInternalAddress() (addr net.IP, err error)
 
 	// AddPortMapping maps a port on the local host to an external port.
-	AddPortMapping(protocol string, internalPort int, description string, timeout time.Duration) (mappedExternalPort int, err error)
+	// protocol is either "udp" or "tcp"
+	AddPortMapping(protocol string, externalPort int, internalPort int, description string, timeout time.Duration) (mappedExternalPort, mappedInternalPort int, err error)
 
 	// DeletePortMapping removes a port mapping.
-	DeletePortMapping(protocol string, internalPort int) (err error)
+	DeletePortMapping(protocol string, externalPort int) (err error)
 }
 
 // DiscoverGateway attempts to find a gateway device.
 func DiscoverGateway() (NAT, error) {
 	select {
-	case nat := <-discoverUPNP_IG1():
+	case nat := <-discoverUPNPIG1():
 		return nat, nil
-	case nat := <-discoverUPNP_IG2():
+	case nat := <-discoverUPNPIG2():
 		return nat, nil
 	case nat := <-discoverNATPMP():
 		return nat, nil
 	case <-time.After(10 * time.Second):
-		return nil, ErrNoNATFound
+		return nil, errNoNATFound
 	}
 }
 

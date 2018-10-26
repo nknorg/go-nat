@@ -65,7 +65,7 @@ func (n *natpmpNAT) GetInternalAddress() (addr net.IP, err error) {
 		}
 	}
 
-	return nil, ErrNoInternalAddress
+	return nil, errNoInternalAddress
 }
 
 func (n *natpmpNAT) GetExternalAddress() (addr net.IP, err error) {
@@ -78,35 +78,67 @@ func (n *natpmpNAT) GetExternalAddress() (addr net.IP, err error) {
 	return net.IPv4(d[0], d[1], d[2], d[3]), nil
 }
 
-func (n *natpmpNAT) AddPortMapping(protocol string, internalPort int, description string, timeout time.Duration) (int, error) {
+func (n *natpmpNAT) AddPortMapping(protocol string, externalPort int, internalPort int, description string, timeout time.Duration) (int, int, error) {
 	var (
 		err error
 	)
 
 	timeoutInSeconds := int(timeout / time.Second)
 
-	if externalPort := n.ports[internalPort]; externalPort > 0 {
-		_, err = n.c.AddPortMapping(protocol, internalPort, externalPort, timeoutInSeconds)
-		if err == nil {
-			n.ports[internalPort] = externalPort
-			return externalPort, nil
+	if externalPort == 0 {
+		found := true
+		for i := 0; i < 100; i++ {
+			externalPort = randomPort()
+			_, found = n.ports[externalPort]
+			if !found {
+				break
+			}
+		}
+		if found {
+			return 0, 0, errNoAvailableExternalPort
 		}
 	}
 
-	for i := 0; i < 3; i++ {
-		externalPort := randomPort()
+	if existingInternalPort, ok := n.ports[externalPort]; ok {
+		if internalPort == 0 {
+			internalPort = existingInternalPort
+		}
+
+		if internalPort != existingInternalPort {
+			return 0, 0, errExternalPortInUse
+		}
+
 		_, err = n.c.AddPortMapping(protocol, internalPort, externalPort, timeoutInSeconds)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		return externalPort, internalPort, nil
+	}
+
+	numTries := 1
+	if internalPort == 0 {
+		numTries = 3
+	}
+
+	for i := 0; i < numTries; i++ {
+		if internalPort == 0 {
+			_, err = n.c.AddPortMapping(protocol, randomPort(), externalPort, timeoutInSeconds)
+		} else {
+			_, err = n.c.AddPortMapping(protocol, internalPort, externalPort, timeoutInSeconds)
+		}
+
 		if err == nil {
-			n.ports[internalPort] = externalPort
-			return externalPort, nil
+			n.ports[externalPort] = internalPort
+			return externalPort, internalPort, nil
 		}
 	}
 
-	return 0, err
+	return 0, 0, err
 }
 
-func (n *natpmpNAT) DeletePortMapping(protocol string, internalPort int) (err error) {
-	delete(n.ports, internalPort)
+func (n *natpmpNAT) DeletePortMapping(protocol string, externalPort int) (err error) {
+	delete(n.ports, externalPort)
 	return nil
 }
 
